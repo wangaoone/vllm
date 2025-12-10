@@ -11,8 +11,10 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import ParseResult, urlparse
 from urllib.request import url2pathname
 
+import aiohttp
 import numpy as np
 import numpy.typing as npt
+import requests
 import torch
 from PIL import Image, UnidentifiedImageError
 
@@ -156,11 +158,17 @@ class MediaConnector:
             self._assert_url_in_allowed_media_domains(url_spec)
 
             connection = self.connection
-            data = connection.get_bytes(
-                url,
-                timeout=fetch_timeout,
-                allow_redirects=envs.VLLM_MEDIA_URL_ALLOW_REDIRECTS,
-            )
+            try:
+                data = connection.get_bytes(
+                    url,
+                    timeout=fetch_timeout,
+                    allow_redirects=envs.VLLM_MEDIA_URL_ALLOW_REDIRECTS,
+                )
+            except (requests.Timeout, requests.exceptions.Timeout) as e:
+                error_msg = (
+                    f"Timeout fetching media from {url} after {fetch_timeout} seconds"
+                )
+                raise ValueError(error_msg) from e
 
             return media_io.load_bytes(data)
 
@@ -187,11 +195,17 @@ class MediaConnector:
             self._assert_url_in_allowed_media_domains(url_spec)
 
             connection = self.connection
-            data = await connection.async_get_bytes(
-                url,
-                timeout=fetch_timeout,
-                allow_redirects=envs.VLLM_MEDIA_URL_ALLOW_REDIRECTS,
-            )
+            try:
+                data = await connection.async_get_bytes(
+                    url,
+                    timeout=fetch_timeout,
+                    allow_redirects=envs.VLLM_MEDIA_URL_ALLOW_REDIRECTS,
+                )
+            except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as e:
+                error_msg = (
+                    f"Timeout fetching media from {url} after {fetch_timeout} seconds"
+                )
+                raise ValueError(error_msg) from e
             future = loop.run_in_executor(global_thread_pool, media_io.load_bytes, data)
             return await future
 
